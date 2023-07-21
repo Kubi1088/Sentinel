@@ -29,7 +29,7 @@ AzureDevOpsAuditing
          ReleaseName = tostring(Data.ReleaseName),
          StageName = tostring(Data.StageName)
 | parse tostring(Data.PipelineName) with * 'Deploy to ' PipelineName
-// Zakomentuj nasledujici radek pro prohledavani i ostatnich Stage
+// Zakomentuj nasledujici radek pro filtraci i ostatnich Stage
 | where StageName =~ 'Production'
 // Uprav ApprovalTime na lokalni cas
 | extend local_AT = datetime_utc_to_local(ApprovalTime, 'Europe/Prague')
