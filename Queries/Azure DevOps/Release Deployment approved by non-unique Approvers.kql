@@ -1,0 +1,47 @@
+// Query: Release Deployment approved by non-unique Approvers
+// Author: Martin Kubinec
+// Connector: AzureDevOpsAuditing
+// Created: 20.07.2023
+// Last Updated: 20.07.2023
+// Version: 1.0
+let var_queryFrequency = 1h;
+let var_queryLookUp = 2d;
+// Pomocna tabulka tb_ReleaseDeploymentCompleted distingujici ProjectId relealesu do produkce
+let tb_ReleaseDeploymentCompleted = 
+( 
+AzureDevOpsAuditing
+| where TimeGenerated > ago(var_queryLookUp)
+| where OperationName =~ 'Release.DeploymentCompleted'
+// Vytvor sloupce z Data
+| extend DeploymentResult = tostring(Data.DeploymentResult),
+         StageName = tostring(Data.StageName)
+| where Data.DeploymentResult =~ 'Succeeded' and StageName =~ 'Production'
+| distinct ProjectId
+);
+// Hlavnu tabulka
+AzureDevOpsAuditing
+| where TimeGenerated > ago(var_queryFrequency)
+// Prejmenuj TimegeNerated
+| extend ApprovalTime = TimeGenerated
+| where OperationName =~ 'Release.ApprovalCompleted' and ProjectId in (tb_ReleaseDeploymentCompleted)
+// Vytvor sloupce z Data
+| extend PipelineId = tostring(Data.PipelineId),
+         ReleaseName = tostring(Data.ReleaseName),
+         StageName = tostring(Data.StageName)
+| parse tostring(Data.PipelineName) with * 'Deploy to ' PipelineName
+// Zakomentuj nasledujici radek pro prohledavani i ostatnich Stage
+| where StageName =~ 'Production'
+// Uprav ApprovalTime na lokalni cas
+| extend local_AT = datetime_utc_to_local(ApprovalTime, 'Europe/Prague')
+| extend local_AT = format_datetime(local_AT,'dd/MM/yyyy HH:mm:ss')
+// Vytvor sloupec WhoAndWhenApproved
+| extend WhoAndWhenApproved = strcat(local_AT, ' Approved by ', ActorDisplayName)
+// Spocitej Approvals
+| summarize WhoAndWhenApproved = make_list(WhoAndWhenApproved), ApproversUPN = make_set(ActorUPN), ApproversID = make_set(ActorUserId), ApproversIP = make_set(IpAddress), Approvals = count(), UniqueApprovers = dcount(ActorUPN) by OperationName, ProjectName, ProjectId, StageName, ReleaseName, Details, PipelineName, PipelineId
+// Vytvor sloupec NonUniqueApproves a filtruj
+| extend NonUniqueApproves = Approvals - UniqueApprovers
+| where Approvals > UniqueApprovers
+// Vytvor sloupec Detail
+| extend Details = strcat('Multiple (', NonUniqueApproves + 1 ,') pre-deployment approvals for ', ReleaseName, ' to ', StageName, ' stage has been approved by one Approver! The ', ReleaseName, ' has been approved (' , Approvals, 'x) by ', UniqueApprovers, ' users. Deployment of ', ReleaseName, ' to ', StageName, ' pipeline ', PipelineName,' has been Completed. More details can be found in LogAnalytics.')
+// Serad vysledky
+| sort by ReleaseName desc
