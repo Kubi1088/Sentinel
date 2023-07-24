@@ -1,0 +1,101 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workspace": {
+            "type": "String"
+        }
+    },
+    "resources": [
+        {
+            "id": "[concat(resourceId('Microsoft.OperationalInsights/workspaces/providers', parameters('workspace'), 'Microsoft.SecurityInsights'),'/alertRules/azdev206-c3p0-2407-2023-554f10mk1088')]",
+            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/azdev206-c3p0-2407-2023-554f10mk1088')]",
+            "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+            "kind": "Scheduled",
+            "apiVersion": "2022-11-01-preview",
+            "properties": {
+                "displayName": "Azure DevOps Personal Access Token used",
+                "description": "The rule evaluate whenever a Personal Access Token (PAT) is used and where is used. PATs are intended for programmatic access use in code or applications and should not be normaly used in Browsers. PAT used in browser could be an indicator of an attacker using a stolen PAT.\nA PAT identifies you, your accessible organizations, and scopes of access. PAT contains your security credentials and can be used as an alternate password to authenticate into Azure DevOps, so you should treat them the same way. This can be prone to attacker theft if not adequately secured.",
+                "severity": "High",
+                "enabled": true,
+                "query": "// Query: Azure DevOps PAT used\n// Connector: AzureDevOpsAuditing\n// Author: Martin Kubinec\n// Created: 24.07.2023\n// Last Update: 24.07.2023 by MK\n// Version 1.0\nlet var_possiblyBrowser = dynamic(['Gecko', 'WebKit', 'Presto', 'Trident', 'EdgeHTML', 'Blink']);\nlet var_ExcludedUPNs = datatable(UPN:string)['devops@domain.onmicrosoft.com'];\nAzureDevOpsAuditing\n| where AuthenticationMechanism startswith 'PAT'\n// Vytvor sloupec usedInBrowser a stanov podminky\n| extend usedInBrowser = iff(UserAgent has_any (var_possiblyBrowser), 'True', 'False')\n// Filtruj udalosti\n| where usedInBrowser == 'False' and ActorUPN !in (var_ExcludedUPNs)\n     or usedInBrowser == 'True' and ActorUPN in (var_ExcludedUPNs)\n// Vytvor sloupec AlertName\n| extend AlertName = case(usedInBrowser == 'True', 'Personal Access Token used in Browser',\n                                                   'Personal Access Token used')\n// Vytvor sloupec AlertDescription\n| extend AlertDescription = case(usedInBrowser == 'True',\n                            strcat('The Personal Access Token has been used in Browser. Actor ', ActorUPN, ' used PAT in agent ', UserAgent, ' from IP Address ', IpAddress, ' . PATs are intended for programmatic access use in code or applications and should not be normaly used in Browsers. PAT used in browser could be an indicator of an attacker using a stolen PAT.'),\n                            strcat('The Personal Access Token has been used. Actor ', ActorUPN, ' used PAT in agent ', UserAgent, ' from IP Address ', IpAddress, ' PAT contains your security credentials and can be used as an alternate password to authenticate into Azure DevOps. Normally, no one should use PAT for authentication. Exceptions may be strictly defined service accounts.')) \n// Vytvor sloupec Severity a stanov podminky\n| extend Severity = case(usedInBrowser == 'True', 'High',\n                                                  'Medium')\n// Zobraz serazene vysledky\n| project-reorder TimeGenerated, AuthenticationMechanism, usedInBrowser, ProjectName, ActorDisplayName, ActorUPN, ActorUserId, IpAddress, UserAgent, OperationName, Details, Data, CorrelationId\n| sort by TimeGenerated desc",
+                "queryFrequency": "PT1H",
+                "queryPeriod": "PT1H",
+                "triggerOperator": "GreaterThan",
+                "triggerThreshold": 0,
+                "suppressionDuration": "PT5H",
+                "suppressionEnabled": false,
+                "startTimeUtc": null,
+                "tactics": [
+                    "Execution",
+                    "Impact"
+                ],
+                "techniques": [
+                    "T1496",
+                    "T1559"
+                ],
+                "alertRuleTemplateName": null,
+                "incidentConfiguration": {
+                    "createIncident": true,
+                    "groupingConfiguration": {
+                        "enabled": true,
+                        "reopenClosedIncident": false,
+                        "lookbackDuration": "PT6H",
+                        "matchingMethod": "Selected",
+                        "groupByEntities": [
+                            "Account"
+                        ],
+                        "groupByAlertDetails": [
+                            "Severity"
+                        ],
+                        "groupByCustomDetails": [
+                            "ActorUserId",
+                            "usedInBrowser"
+                        ]
+                    }
+                },
+                "eventGroupingSettings": {
+                    "aggregationKind": "AlertPerResult"
+                },
+                "alertDetailsOverride": {
+                    "alertDisplayNameFormat": "{{AlertName}} ",
+                    "alertDescriptionFormat": "{{AlertDescription}} \nA PAT identifies you, your accessible organizations, and scopes of access. PAT contains your security credentials and can be used as an alternate password to authenticate into Azure DevOps, so you should treat them the same way. This can be prone to attacker theft if not adequately secured.",
+                    "alertSeverityColumnName": "Severity",
+                    "alertDynamicProperties": []
+                },
+                "customDetails": {
+                    "ActorDisplayName": "ActorDisplayName",
+                    "ActorUserId": "ActorUserId",
+                    "usedInBrowser": "usedInBrowser",
+                    "UserAgent": "UserAgent"
+                },
+                "entityMappings": [
+                    {
+                        "entityType": "Account",
+                        "fieldMappings": [
+                            {
+                                "identifier": "FullName",
+                                "columnName": "ActorUPN"
+                            },
+                            {
+                                "identifier": "AadUserId",
+                                "columnName": "ActorUserId"
+                            }
+                        ]
+                    },
+                    {
+                        "entityType": "IP",
+                        "fieldMappings": [
+                            {
+                                "identifier": "Address",
+                                "columnName": "IpAddress"
+                            }
+                        ]
+                    }
+                ],
+                "sentinelEntitiesMappings": null,
+                "templateVersion": null
+            }
+        }
+    ]
+}

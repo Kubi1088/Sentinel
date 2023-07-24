@@ -1,0 +1,102 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workspace": {
+            "type": "String"
+        }
+    },
+    "resources": [
+        {
+            "id": "[concat(resourceId('Microsoft.OperationalInsights/workspaces/providers', parameters('workspace'), 'Microsoft.SecurityInsights'),'/alertRules/azdev205-r2d2-2407-2023-4d2ba1mk1088')]",
+            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/azdev205-r2d2-2407-2023-4d2ba1mk1088')]",
+            "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+            "kind": "Scheduled",
+            "apiVersion": "2022-11-01-preview",
+            "properties": {
+                "displayName": "External Upstream Source Added to Azure DevOps Feed",
+                "description": "The detection looks for new external sources added to an Azure DevOps feed. Incident record Actor UPN and ID, IP Address, Feed Name and ID Project Name and ID etc.\nAn attacker could look to add a malicious feed in order to inject malicious packages into a build pipeline.",
+                "severity": "Medium",
+                "enabled": true,
+                "query": "// Query: External Upstream Source Added to Azure DevOps Feed\n// Connector: AzureDevOpsAuditing\n// Author: Martin Kubinec\n// Created: 24.07.2023\n// Last Update: 24.07.2023 by MK\n// Version 1.0\nAzureDevOpsAuditing\n// Filtruj zdroje pridane na úrovni organizace nebo projektu\n| where OperationName matches regex 'Artifacts.Feed.(Org|Project).Modify'\n    and Details has 'UpstreamSources, added'\n// Vytvor sloupce z Data\n| extend FeedName = tostring(Data.FeedName),\n         FeedId = tostring(Data.FeedId),\n         UpstreamsAdded = Data.UpstreamsAdded\n// Expand pro rozdeleni jednotlivych zdroju\n| mv-expand UpstreamsAdded\n// Vytvor sloupce z UpstreamsAdded\n| extend SourceLocation = tostring(UpstreamsAdded.Location),\n         SourceName = tostring(UpstreamsAdded.Name),\n         SourceType = tostring(UpstreamsAdded.UpstreamSourceType),\n         SourceProtocol = tostring(UpstreamsAdded.Protocol),\n         SourceStatus = tostring(UpstreamsAdded.Status)\n// Filtruj pouze externi zdroje\n| where SourceType !~ 'internal'\n// Zobraz serazene vysledky\n| project-reorder TimeGenerated, OperationName, ScopeDisplayName, ProjectName, ProjectId, FeedName, FeedId, SourceName, SourceLocation, SourceProtocol, ActorDisplayName, ActorUPN, ActorUserId, UserAgent, IpAddress\n| sort by TimeGenerated desc",
+                "queryFrequency": "PT1H",
+                "queryPeriod": "PT1H",
+                "triggerOperator": "GreaterThan",
+                "triggerThreshold": 0,
+                "suppressionDuration": "PT5H",
+                "suppressionEnabled": false,
+                "startTimeUtc": null,
+                "tactics": [
+                    "InitialAccess"
+                ],
+                "techniques": [
+                    "T1199"
+                ],
+                "incidentConfiguration": {
+                    "createIncident": true,
+                    "groupingConfiguration": {
+                        "enabled": true,
+                        "reopenClosedIncident": false,
+                        "lookbackDuration": "PT1H",
+                        "matchingMethod": "Selected",
+                        "groupByEntities": [
+                            "Account"
+                        ],
+                        "groupByAlertDetails": [],
+                        "groupByCustomDetails": [
+                            "SourceName"
+                        ]
+                    }
+                },
+                "eventGroupingSettings": {
+                    "aggregationKind": "AlertPerResult"
+                },
+                "alertDetailsOverride": {
+                    "alertDescriptionFormat": "New external sources has been added from {{SourceName}} to an Azure DevOps feed by {{ActorUPN}} from IP Address {{IpAddress}}. An attacker could look to add a malicious feed in order to inject malicious packages into a build pipeline.",
+                    "alertDynamicProperties": []
+                },
+                "customDetails": {
+                    "FeedName": "FeedName",
+                    "FeedId": "FeedId",
+                    "UserAgent": "UserAgent",
+                    "SourceName": "SourceName",
+                    "SourceLocation": "SourceLocation"
+                },
+                "entityMappings": [
+                    {
+                        "entityType": "Account",
+                        "fieldMappings": [
+                            {
+                                "identifier": "FullName",
+                                "columnName": "ActorUPN"
+                            },
+                            {
+                                "identifier": "AadUserId",
+                                "columnName": "ActorUserId"
+                            }
+                        ]
+                    },
+                    {
+                        "entityType": "IP",
+                        "fieldMappings": [
+                            {
+                                "identifier": "Address",
+                                "columnName": "IpAddress"
+                            }
+                        ]
+                    },
+                    {
+                        "entityType": "URL",
+                        "fieldMappings": [
+                            {
+                                "identifier": "Url",
+                                "columnName": "SourceLocation"
+                            }
+                        ]
+                    }
+                ],
+                "sentinelEntitiesMappings": null
+            }
+        }
+    ]
+}

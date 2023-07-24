@@ -1,0 +1,92 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workspace": {
+            "type": "String"
+        }
+    },
+    "resources": [
+        {
+            "id": "[concat(resourceId('Microsoft.OperationalInsights/workspaces/providers', parameters('workspace'), 'Microsoft.SecurityInsights'),'/alertRules/azdev204-r5d4-2407-2023-6d5ce4mk1088')]",
+            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/azdev204-r5d4-2407-2023-6d5ce4mk1088')]",
+            "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+            "kind": "Scheduled",
+            "apiVersion": "2022-11-01-preview",
+            "properties": {
+                "displayName": "Extension Added to Azure DevOps",
+                "description": "The rule detects if extension is added to Azure DevOps. The rule records an Actor UPN and ID, extension name, publisher etc.\nAn attacker could use a malicious extension to conduct malicious activity.",
+                "severity": "Low",
+                "enabled": true,
+                "query": "// Query: Extension Added to Azure DevOps\n// Connector: AzureDevOpsAuditing\n// Author: Martin Kubinec\n// Created: 24.07.2023\n// Last Update: 24.07.2023 by MK\n// Version 1.0\nAzureDevOpsAuditing\n| where OperationName =~ 'Extension.Installed'\n| extend ExtensionName = tostring(Data.ExtensionName),\n         PublisherName = tostring(Data.PublisherName)\n// Zobraz serazene vysledky\n| project-reorder TimeGenerated, OperationName, ExtensionName, PublisherName, ActorUPN, IpAddress, UserAgent, ScopeDisplayName, Data\n| sort by TimeGenerated desc ",
+                "queryFrequency": "PT1H",
+                "queryPeriod": "PT1H",
+                "triggerOperator": "GreaterThan",
+                "triggerThreshold": 0,
+                "suppressionDuration": "PT5H",
+                "suppressionEnabled": false,
+                "startTimeUtc": null,
+                "tactics": [
+                    "Persistence"
+                ],
+                "techniques": [
+                    "T1505"
+                ],
+                "incidentConfiguration": {
+                    "createIncident": true,
+                    "groupingConfiguration": {
+                        "enabled": true,
+                        "reopenClosedIncident": false,
+                        "lookbackDuration": "PT1H",
+                        "matchingMethod": "Selected",
+                        "groupByEntities": [
+                            "Account"
+                        ],
+                        "groupByAlertDetails": [],
+                        "groupByCustomDetails": [
+                            "ExtensionName",
+                            "PublisherName"
+                        ]
+                    }
+                },
+                "eventGroupingSettings": {
+                    "aggregationKind": "AlertPerResult"
+                },
+                "alertDetailsOverride": {
+                    "alertDescriptionFormat": "Extension {{ExtensionName}} has been added to Azure DevOps by {{ActorUPN}} from IP Address {{IpAddress}} .\nAn attacker could use a malicious extension to conduct malicious activity.",
+                    "alertDynamicProperties": []
+                },
+                "customDetails": {
+                    "ExtensionName": "ExtensionName",
+                    "PublisherName": "PublisherName",
+                    "UserAgent": "UserAgent"
+                },
+                "entityMappings": [
+                    {
+                        "entityType": "Account",
+                        "fieldMappings": [
+                            {
+                                "identifier": "FullName",
+                                "columnName": "ActorUPN"
+                            },
+                            {
+                                "identifier": "AadUserId",
+                                "columnName": "ActorUserId"
+                            }
+                        ]
+                    },
+                    {
+                        "entityType": "IP",
+                        "fieldMappings": [
+                            {
+                                "identifier": "Address",
+                                "columnName": "IpAddress"
+                            }
+                        ]
+                    }
+                ],
+                "sentinelEntitiesMappings": null
+            }
+        }
+    ]
+}
