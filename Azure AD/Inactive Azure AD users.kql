@@ -1,0 +1,36 @@
+// Query: Inactive Azure AD users
+// Connectors: Azure AD (AuditLogs, SigninLogs), UEBA (IdentityInfo)
+// Author: Martin Kubinec
+// Created: 10.03.2022
+// Last Update: 10.03.2022
+// Version: 1.0
+let var_TimeWindow = 365d; // depends on your data retention
+let var_lastLoginThreshold = 30; // in days
+SigninLogs
+| where TimeGenerated > ago(var_TimeWindow)
+| where ResultType == '0'
+//| where UserType == 'Guest' 
+| summarize arg_max(TimeGenerated, *) by UserPrincipalName
+| join kind=leftouter (
+   IdentityInfo
+   | where TimeGenerated > ago(var_TimeWindow)
+   | summarize arg_max(TimeGenerated, *) by AccountDisplayName
+   | distinct AccountDisplayName, IsAccountEnabled,AccountObjectId
+   | extend userPrincipalNameID = replace_string(AccountObjectId, '-','')
+    | join kind=leftouter (
+        AuditLogs
+        | where TimeGenerated > ago(var_TimeWindow)
+        | where ActivityDisplayName in('Delete user','Hard Delete user')
+        | extend userPrincipalName = substring(tostring(TargetResources[0].userPrincipalName),0,32)
+        | distinct tostring(userPrincipalName)
+    ) on $left.userPrincipalNameID == $right.userPrincipalName
+    | extend IsAccountExist = iff(isnotempty(userPrincipalName), '❌ false', '✅ true')
+    | extend IsAccountEnabled = case(IsAccountEnabled == 'false', '❌ false', '✅ true')
+    | project-away userPrincipalName, userPrincipalNameID
+) on $left.UserDisplayName == $right.AccountDisplayName
+| where IsAccountExist == '✅ true' // the condition of account existence
+| project UserType, UserPrincipalName,
+    LastLogonDate = TimeGenerated,DaysSinceLastLogon=datetime_diff('day', now(), TimeGenerated),
+    IsAccountExist,IsAccountEnabled
+| where DaysSinceLastLogon >= var_lastLoginThreshold
+| sort by DaysSinceLastLogon desc, UserPrincipalName asc
