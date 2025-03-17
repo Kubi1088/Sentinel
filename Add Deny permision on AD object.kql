@@ -1,0 +1,51 @@
+// Query: Add Deny permision on AD object
+let var_queryFrequency = 14d;
+let tb_basicQuery =
+(
+SecurityEvent
+| where TimeGenerated > ago(var_queryFrequency)
+| where EventID == 5136
+    and OperationType in ('%%14675','%%14674')
+    and EventData has 'nTSecurityDescriptor'
+| parse EventData with * '"ObjectClass">' ObjectClass '</Data>' *
+| parse EventData with * '"ObjectDN">' ObjectDN '</Data>' *
+| parse EventData with * '"ObjectGUID">' ObjectGUID '</Data>' *
+| extend ObjectDN = replace_string(ObjectDN, 'cn=', 'CN=')
+| parse ObjectDN with * 'CN=' ObjectName ',' *
+| parse EventData with * '"SubjectUserSid">' InitiatorSid '</Data>' *
+| parse EventData with * '"SubjectUserName">' Initiator '</Data>' *
+| parse EventData with * '"SubjectDomainName">' InitiatorDomain '</Data>' *
+| parse EventData with * '"AttributeValue">' AttributeValue '</Data>' *
+| extend nTSecurityDescriptor = extract_all(@"\((.*?)\)", tostring(AttributeValue)),
+         SDDLheader = tostring(split(AttributeValue,'(')[0])
+| extend JoinHash = hash_sha256(strcat(tostring(format_datetime(TimeGenerated, 'yyyy-MM-dd-hh-mm-ss')),ObjectGUID,InitiatorSid))
+| project TimeGenerated, JoinHash, InitiatorType=AccountType, Initiator, InitiatorSid, InitiatorDomain, ObjectClass, ObjectDN, ObjectGUID, ObjectName, SDDLheader, nTSecurityDescriptor, EventData, EventID, Activity, Keywords, OperationType
+);
+let tb_newValues = 
+(
+tb_basicQuery
+| where OperationType == '%%14674'
+| extend new_nTSecurityDescriptor = nTSecurityDescriptor
+);
+let tb_oldValues = 
+(
+tb_basicQuery
+| where OperationType == '%%14675'
+| extend old_nTSecurityDescriptor = nTSecurityDescriptor
+);
+tb_newValues
+| join tb_oldValues on JoinHash
+| project TimeGenerated, InitiatorType, Initiator, InitiatorSid, InitiatorDomain, ObjectClass, ObjectDN, ObjectGUID, ObjectName, SDDLheader, new_nTSecurityDescriptor, old_nTSecurityDescriptor, EventData, EventID, Activity, Keywords, OperationType
+| extend AddedValues = set_difference(new_nTSecurityDescriptor, old_nTSecurityDescriptor),
+         RemovedValues = set_difference(old_nTSecurityDescriptor, new_nTSecurityDescriptor)
+| extend Description = case(AddedValues has_any ('OD;','D;') and AddedValues has ';WD' and AddedValues matches regex 'GA', 'Deny Everyone Full Control',
+                            AddedValues has_any ('OD;','D;') and AddedValues has ';WD' and AddedValues matches regex 'CCDCLCSWRPWPDTLOCRSDRCWDWO', 'Deny Everyone Full Control',
+                            AddedValues has_any ('OD;','D;') and AddedValues matches regex 'GA', 'Deny Full Control',
+                            AddedValues has_any ('OD;','D;') and AddedValues matches regex 'CCDCLCSWRPWPDTLOCRSDRCWDWO', 'Deny Full Control',
+                            AddedValues has_any ('OD;','D;') and AddedValues has ';WD' and AddedValues matches regex 'LC', 'Deny Everyone List Content',
+                            AddedValues has_any ('OD;','D;') and AddedValues matches regex 'LC', 'Denny List Content',
+                            AddedValues has_any ('OD;','D;') and AddedValues has ';WD', 'Deny Everyone',
+                            AddedValues has_any ('OD;','D;'), 'Deny', 'Other')
+| where Description startswith 'Deny'
+| project TimeGenerated, ObjectClass, ObjectDN, ObjectGUID, ObjectName, Description, SDDLheader, nTSecurityDescriptor=new_nTSecurityDescriptor, AddedValues, RemovedValues, InitiatorType, Initiator, InitiatorSid, InitiatorDomain, Activity, Keywords
+| sort by TimeGenerated desc
